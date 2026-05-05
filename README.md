@@ -45,9 +45,9 @@ The forecasting task is framed as a supervised univariate time-series regression
 
 ## 📂 Repository Structure
 ```text
-├── data/
+├── Data/
 │   └── Texas_dataset.csv          # Raw EIA dataset
-├── notebook/
+├── Notebook/
 │   └── final_AFM_project.ipynb    # Main Jupyter Notebook with all code & analysis
 ├── Report/
 │   ├── main_AFM.pdf           # Detailed project report
