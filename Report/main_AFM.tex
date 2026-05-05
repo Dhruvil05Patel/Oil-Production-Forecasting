@@ -1,0 +1,805 @@
+\documentclass[12pt,a4paper]{article}
+
+% ── Packages ──
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{natbib}
+
+% ── Page style ──
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Texas Crude Oil Production Forecasting}
+\fancyhead[R]{Applied Forecasting Algorithms}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\definecolor{headerblue}{RGB}{0,70,130}
+\definecolor{placeholdercolor}{RGB}{220,230,242}
+
+\newcommand{\placeholderfig}[3]{%
+  \begin{figure}[H]
+    \centering
+    \colorbox{placeholdercolor}{%
+      \parbox{0.88\textwidth}{%
+        \vspace{#1}%
+        \centering
+        \textbf{\textcolor{headerblue}{$\blacktriangleright$~IMAGE TO INSERT}}\\[4pt]
+        \textit{#2}
+        \vspace{#1}%
+      }%
+    }
+    \caption{#2}
+    \label{#3}
+  \end{figure}%
+}
+
+\begin{document}
+% ---- Title Page ----
+\begin{titlepage}
+    \centering
+    \vspace*{1cm} % Adjusted top spacing slightly to fit the logo
+    
+    % --- Logo added here ---
+    % You can adjust the width (e.g., 0.3\textwidth, 5cm) to make it larger or smaller
+    \includegraphics[width=0.5\textwidth]{DAU_LOGO.jpg}
+    \vspace{1cm} 
+    % -----------------------
+
+    {\Huge\bfseries Texas Crude Oil Production Forecasting\par}
+    
+    \vspace{1.5cm}
+    \rule{0.8\linewidth}{1pt}
+    \vspace{0.5cm}
+
+    {\large\textbf{Course:} Applied Forecasting Algorithms (IT-402)\par}
+    {\large\textbf{Instructor:} Prof.\ Pritam Anand\par}
+    \vspace{1cm}
+    
+    {\large\textbf{Group Members:}\par}
+    \vspace{0.3cm}
+    \begin{tabular}{ll}
+        Kavy Sanghani  & 202301044 \\
+        Rishank Dudhat & 202301068 \\
+        Dhruvil Patel & 202301035 \\
+        Ishan Thakkar & 202301245 \\
+    \end{tabular}
+    \vspace{1.5cm}
+
+    \rule{0.8\linewidth}{1pt}
+    \vfill
+
+\end{titlepage}
+
+
+
+\tableofcontents
+\newpage
+
+% ══════════════════════════════════════════════════════════════
+\begin{abstract}
+Crude oil production forecasting is a cornerstone of energy planning, underpinning decisions that range from strategic reserve management to state tax-revenue estimation. This report presents a comprehensive comparative study of classical statistical and modern deep-learning time-series models applied to monthly Texas crude oil production data spanning January 1981 to January 2026 (541 observations, measured in thousands of barrels).
+
+The forecasting task is framed as a supervised univariate time-series regression problem. Data were split chronologically into training (70\%), validation (20\%), and test (10\%) partitions to prevent leakage. Classical approaches include AutoRegressive (AR), Moving Average (MA), ARIMA, and Seasonal ARIMA (SARIMA), with parameters selected via validation-set MAPE. Deep learning architectures evaluated are RNN, GRU, and LSTM, all trained on the scaled second-differenced series with look-back windows tuned over 10--15 timesteps using \texttt{keras-tuner}. A statistical Quantile Regression model with adaptive conformal calibration provides probabilistic forecasts.
+
+Key findings indicate that SARIMA achieved the best overall point accuracy ($R^2 = 0.8455$, MAPE $= 1.68\%$), while GRU led the deep-learning family (MAPE $= 2.55\%$). Probabilistic forecasting via adaptive conformal prediction around the Quantile Regression model yielded a PICP of $78.18\%$ against an 80\% target, with a mean interval width of 9,580 thousand barrels. Both model families are viable for operational forecasting, with SARIMA offering superior interpretability and accuracy, while GRU and LSTM provide competitive performance with non-linear flexibility.
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════════
+\section{Introduction}
+
+\subsection{Background and Motivation}
+
+Texas stands as the undeniable epicenter of United States energy production, accounting for approximately 40\% of domestic crude oil output as of 2024. This dominance is largely driven by advancements in horizontal drilling and hydraulic fracturing within prolific regions like the Permian and Eagle Ford basins. However, this energy landscape was fundamentally reshaped by the shale revolution of the 2010s, which introduced unprecedented non-linear dynamics into production trends. Historically predictable decline curves were replaced by explosive growth phases, which were subsequently punctuated by severe, abrupt supply curtailments during global macroeconomic shocks—most notably the 2014--2016 price collapse and the 2020 COVID-19 pandemic demand destruction. These structural breaks, characterized by extreme volatility and regime shifts, severely challenge the assumptions of stationarity and linearity inherent in classical statistical models. This complexity necessitates a modernized forecasting approach that benchmarks traditional econometric methods against the flexible, non-linear pattern-recognition capabilities of deep learning architectures.
+
+A critical consideration in this forecasting framework is the temporal resolution of the data. This study deliberately adopts a \textbf{monthly forecasting frequency} to strike an optimal balance between operational noise and strategic relevance. Daily production data is heavily plagued by high-frequency noise stemming from localized weather disruptions, short-term facility maintenance, and severe reporting lags, all of which obscure underlying macroeconomic trends. Conversely, yearly data is overly aggregated; it smooths out critical intra-year volatility and fails to capture rapid supply responses to sudden market shifts or geopolitical events. A monthly frequency effectively mitigates day-to-day noise while remaining granular enough to identify structural breaks in near real-time. Furthermore, it aligns seamlessly with the reporting cadence of the U.S. Energy Information Administration (EIA), quarterly corporate earnings cycles, and state fiscal planning schedules.
+
+Accurate and robust medium-term production forecasts provide immense strategic value across a diverse spectrum of stakeholders:
+\begin{description}[style=nextline]
+  \item[Producers and Upstream Operators] 
+  Enable the proactive optimization of capital expenditure (CapEx) allocations, rig deployment schedules, and supply chain logistics in a highly capital-intensive sector.
+  \item[Regulators and State Planners] 
+  Facilitate the precise calibration of royalty revenues and severance tax projections, which are volatile but vital components of the Texas state budget and public funding.
+  \item[Midstream and Grid Operators] 
+  Anticipate pipeline capacity constraints, optimize storage facility utilization, and ensure reliable energy feedstock availability for downstream refining and export terminals.
+  \item[Policy Makers and Economists] 
+  Provide the data-driven insights necessary for designing Strategic Petroleum Reserve (SPR) interventions, managing national energy security, and formulating macroeconomic policies.
+\end{description}
+
+\subsection{Problem Statement}
+
+Given a historical univariate time-series of monthly crude oil production $y_t$ (thousand barrels) recorded for Texas from January 1981 to January 2026, the task is to predict future production values over short-to-medium horizons. No exogenous variables are used in the primary models, isolating each architecture's contribution to pattern extraction from the series alone.
+
+\subsection{Objectives}
+
+The project aims to:
+\begin{enumerate}
+  \item Implement and tune statistical (AR, MA, ARIMA, SARIMA) and deep-learning (RNN, GRU, LSTM) forecasting models on the Texas production series.
+  \item Evaluate and compare models using RMSE, MAE, MAPE, and $R^2$ on a held-out test set.
+  \item Construct probabilistic forecast intervals via adaptive conformal prediction on a Quantile Regression model and assess empirical coverage (PICP).
+  \item Translate point forecasts into actionable recommendations for energy planning.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════
+\section{Data Source and Pre-processing}
+
+\subsection{Origin of the Dataset}
+
+The dataset is sourced from the U.S.\ Energy Information Administration (EIA) and contains the Texas Field Production of Crude Oil series (identifier \texttt{PET.MCRFPTX2.M}), reported monthly and downloaded as a CSV file \citep{eia2026}. The raw CSV required three header rows to be skipped, after which two columns were retained: \texttt{Date} (formatted as Mon-YYYY) and \texttt{Production} (thousands of barrels).
+
+\subsection{Data Characteristics}
+
+Table~\ref{tab:summary} summarises the key properties of the series.
+
+\begin{table}[H]
+\centering
+\caption{Summary statistics of the Texas crude oil production series.}
+\label{tab:summary}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Frequency          & Monthly \\
+Coverage           & January 1981 -- January 2026 \\
+Total observations & 541 \\
+Unit               & Thousand barrels \\
+Minimum            & 30,189 \\
+Maximum            & 181,046 \\
+Mean               & 74,023 \\
+Standard deviation & 44,047 \\
+Missing values     & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The series exhibits three broad regimes: (1)~a secular decline from 1981 to $\sim$1993 driven by mature-field depletion; (2)~a plateau phase from 1993 to 2010; and (3)~an explosive growth phase post-2010 fuelled by horizontal drilling in the Permian Basin, interrupted sharply in 2015--2016 and 2020.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f1.png}
+    \caption{Monthly Texas crude oil production (thousand barrels), 1981--2026. The three structural regimes (decline, plateau, shale boom) are clearly visible.}
+    \label{fig:timeseries}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f2.png}
+    \caption{Histogram of monthly Texas crude oil production, illustrating the bimodal distribution arising from the pre-shale and post-shale production regimes.}
+    \label{fig:histogram}
+\end{figure}
+
+\subsection{Data Pre-processing}
+
+\paragraph{Date parsing.}
+The \texttt{Date} column was converted to \texttt{datetime64} objects via \texttt{pd.to\_datetime()}, and the index was set to produce a \texttt{DatetimeIndex} with monthly frequency.
+
+\paragraph{Numeric coercion.}
+The production column was cast to float using \texttt{pd.to\_numeric(errors='coerce')}; resulting \texttt{NaN} entries were dropped, leaving 541 clean observations.
+
+\paragraph{Differencing.}
+First-order and second-order differences, together with their log-transformed counterparts, were computed on the full series before splitting, using only lagged values to avoid forward leakage. The first difference is defined as:
+\begin{equation}
+  \Delta y_t = y_t - y_{t-1}
+  \label{eq:firstdiff}
+\end{equation}
+and the second difference as:
+\begin{equation}
+  \Delta^2 y_t = \Delta y_t - \Delta y_{t-1} = y_t - 2y_{t-1} + y_{t-2}.
+  \label{eq:seconddiff}
+\end{equation}
+Second differencing removes both trend and curvature from the series, which is essential because the Augmented Dickey--Fuller (ADF) test showed that even the first difference remained non-stationary ($p = 0.8667$), whereas the second difference achieved stationarity ($p < 0.001$). Without stationarity, the ARIMA-family models cannot produce valid parameter estimates, and neural network training becomes unstable due to shifting input distributions.
+
+\paragraph{Scaling.}
+For neural-network models, the second-differenced series was normalised to $[-1,1]$ using a MinMaxScaler \citep{pedregosa2011} fitted exclusively on the training partition:
+\begin{equation}
+  \tilde{z}_t = 2\,\frac{z_t - z_{\min}^{\text{train}}}{z_{\max}^{\text{train}} - z_{\min}^{\text{train}}} - 1,
+  \label{eq:minmax}
+\end{equation}
+where $z_t = \Delta^2 y_t$. Fitting the scaler only on training data prevents information leakage from future observations. The $[-1,1]$ range (rather than $[0,1]$) was chosen because the second differences are zero-centred and can be negative, making a symmetric range more natural and helping gradients propagate more evenly through $\tanh$ activations. Inverse transformation followed by second-difference reconstruction was applied before metric computation to recover original-scale predictions.
+
+\subsubsection{Train--Validation--Test Split}
+
+A chronological three-way split was adopted to prevent information leakage:
+\begin{align*}
+  \text{Training:}   &\quad t \in [\text{Jan 1981},\;\text{Jun 2012}], \quad n_{\text{train}} = 378 \;(70\%) \\
+  \text{Validation:} &\quad t \in [\text{Jul 2012},\;\text{Jun 2021}], \quad n_{\text{val}}   = 108 \;(20\%) \\
+  \text{Test:}        &\quad t \in [\text{Jul 2021},\;\text{Jan 2026}], \quad n_{\text{test}}  = 55  \;(10\%)
+\end{align*}
+All hyperparameter selection was performed on the validation set; the test set was accessed only once for final evaluation. This strict temporal ordering prevents any future information from leaking into training or validation, which is critical for time-series data where random shuffling would violate temporal causality.
+
+\subsubsection{Exploratory Data Analysis}
+
+A classical additive seasonal decomposition (\texttt{seasonal\_decompose}, period $= 12$) was applied to the training partition \citep{box2015}. Key observations:
+\begin{itemize}
+  \item The trend component confirms the three-regime structure described above.
+  \item A mild annual production cycle peaks in summer and dips in winter months.
+  \item Residuals show heteroscedasticity: variance increased substantially during the shale-boom period (2012--2019).
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f3.png}
+    \caption{Additive seasonal decomposition of the training partition (January 1981 -- June 2012). The trend, seasonal, and residual components are shown separately.}
+    \label{fig:decomposition}
+\end{figure}
+
+Augmented Dickey--Fuller (ADF) testing \citep{box2015} on the training partition confirmed the raw series and its first difference are non-stationary ($p > 0.05$); the second difference renders the series stationary ($p < 0.001$), justifying $d = 2$ in all fitted ARIMA-family models. Log-transformed second differences also passed the ADF test. Table~\ref{tab:adf} summarises these results.
+
+\begin{table}[H]
+\centering
+\caption{Augmented Dickey--Fuller test results on the training set.}
+\label{tab:adf}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+\textbf{Series} & \textbf{$p$-value} & \textbf{Conclusion} \\
+\midrule
+Normal data       & 0.7687    & Non-stationary \\
+First difference  & 0.8667    & Non-stationary \\
+Log first diff    & 0.7493    & Non-stationary \\
+Second difference & $<0.001$  & \textbf{Stationary} \\
+Log second diff   & $<0.001$  & \textbf{Stationary} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f4.png}
+    \caption{Autocorrelation function (ACF) and partial autocorrelation function (PACF) of the second-differenced training series, used to guide AR and MA order selection.}
+    \label{fig:acf_pacf}
+\end{figure}
+
+\paragraph{ACF and PACF Analysis.}
+As illustrated in Figure~\ref{fig:acf_pacf}, the Autocorrelation Function (ACF) and Partial Autocorrelation Function (PACF) provide critical insights into the stationary second-differenced training series. The PACF plot exhibits significant spikes at lags 1, 2, and 3, with subsequent lags dropping within the confidence interval. This sharp cutoff signifies a strong autoregressive signature, justifying our choice of $p=3$ for the AR model. Conversely, the ACF plot demonstrates a slower, oscillating decay with significant correlations persisting up to approximately lag 11. This sustained autocorrelation pattern indicates a moving average component, supporting the selection of $q=11$ for the MA model. These visual diagnostics align perfectly with our quantitative hyperparameter tuning results and ensure that lingering structural shocks are adequately modeled.
+
+% ══════════════════════════════════════════════════════════════
+\section{Evaluation Metrics}
+
+All models are assessed on the held-out test set using the following four metrics.
+
+\paragraph{Root Mean Squared Error (RMSE).}
+\begin{equation}
+  \mathrm{RMSE} = \sqrt{\frac{1}{n}\sum_{t=1}^{n}\bigl(y_t - \hat{y}_t\bigr)^2}.
+  \label{eq:rmse}
+\end{equation}
+RMSE penalises large deviations more heavily than MAE due to the squaring operation, making it sensitive to outliers such as sudden production drops during the 2020 pandemic.
+
+\paragraph{Mean Absolute Error (MAE).}
+\begin{equation}
+  \mathrm{MAE} = \frac{1}{n}\sum_{t=1}^{n}\bigl|y_t - \hat{y}_t\bigr|.
+  \label{eq:mae}
+\end{equation}
+MAE provides a linear, interpretable error in the same units as production (thousand barrels) and is robust to outliers.
+
+\paragraph{Mean Absolute Percentage Error (MAPE).}
+\begin{equation}
+  \mathrm{MAPE} = \frac{100\%}{n}\sum_{t=1}^{n}\frac{\bigl|y_t - \hat{y}_t\bigr|}{y_t}.
+  \label{eq:mape}
+\end{equation}
+MAPE normalises errors by actual values, enabling comparison across series with different scales. It is the primary metric for model selection because it directly communicates forecast accuracy as a percentage.
+
+\paragraph{Coefficient of Determination ($R^2$).}
+\begin{equation}
+  R^2 = 1 - \frac{\sum_{t=1}^{n}(y_t - \hat{y}_t)^2}{\sum_{t=1}^{n}(y_t - \bar{y})^2},
+  \label{eq:r2}
+\end{equation}
+where $\bar{y}$ is the mean of actual values. $R^2 = 1$ indicates a perfect fit; $R^2 = 0$ means the model is no better than predicting the mean.
+
+\paragraph{Prediction Interval Coverage Probability (PICP).}
+For probabilistic forecasts:
+\begin{equation}
+  \mathrm{PICP} = \frac{1}{n}\sum_{t=1}^{n}\mathbf{1}\!\bigl[\hat{y}_t^{(L)} \le y_t \le \hat{y}_t^{(U)}\bigr],
+  \label{eq:picp}
+\end{equation}
+where $\hat{y}_t^{(L)}$ and $\hat{y}_t^{(U)}$ are the lower and upper bounds of the prediction interval. PICP should ideally match the nominal coverage level (80\% in our study).
+
+% ══════════════════════════════════════════════════════════════
+\section{Methodology}
+
+\subsection{Forecasting Horizon and Input--Output Structure}
+
+A one-step-ahead rolling forecast scheme is adopted: each model predicts production in month $t+1$ after re-fitting or updating on all observations up to and including $t$. This mirrors the operational forecasting setting where predictions are issued monthly as new data arrive. For deep-learning models, a look-back window $w$ (ranging from 10 to 15 timesteps) is used, so the input tensor is $\mathbf{x}_t = [\tilde{z}_{t-w+1}, \ldots, \tilde{z}_t]$ in the scaled second-differenced space and the target is $\tilde{z}_{t+1} = \Delta^2 y_{t+1}$ (scaled), which is subsequently reconstructed to the original scale.
+
+\subsection{Naive Baselines}
+
+Four naive benchmarks were evaluated on the test set to establish a performance floor:
+\begin{description}
+  \item[Global mean] Predict the mean of all observations seen so far.
+  \item[Last-year mean] Predict the mean of the preceding 12~months (best naive baseline, MAPE $= 3.61\%$, RMSE $= 6{,}885$, $R^2 = 0.5553$).
+  \item[Last value] Na\"ive random-walk: predict the most recent observation, i.e.\ $\hat{y}_{t+1} = y_t$.
+  \item[Seasonal na\"ive] Predict the value from the same month one year prior, i.e.\ $\hat{y}_{t+1} = y_{t-11}$.
+\end{description}
+
+\begin{table}[H]
+\centering
+\caption{Naive baseline methods evaluated on the test set (July 2021 -- January 2026).}
+\label{tab:naive}
+\begin{tabular}{@{}lrrrl@{}}
+\toprule
+\textbf{Method} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE (\%)} & $\boldsymbol{R^2}$ \\
+\midrule
+Global mean      & ---   & ---   & 58.61  & ---    \\
+Last-year mean   & 6,885 & 5,900 & 3.61   & 0.5553 \\
+Last value       & ---   & ---   & 3.78   & ---    \\
+Seasonal na\"ive & ---   & ---   & 4.68   & ---    \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All subsequent models must surpass the last-year mean (MAPE $= 3.61\%$) to demonstrate added value.
+
+\subsection{Statistical Models}
+
+All statistical models use the ARIMA family from \texttt{statsmodels} \citep{seabold2010}. A rolling one-step forecast scheme was used: the model was re-fitted after each test observation was revealed.
+
+\subsubsection{AutoRegressive Model -- AR($p$)}
+
+The AR model expresses the current (differenced) observation as a linear combination of its past $p$ values:
+\begin{equation}
+  \Delta^2 y_t = c + \sum_{i=1}^{p}\phi_i\,\Delta^2 y_{t-i} + \varepsilon_t, \qquad \varepsilon_t \sim \mathcal{N}(0,\sigma^2).
+  \label{eq:ar}
+\end{equation}
+This is fitted as \texttt{ARIMA($p$, 2, 0)}. The differencing order $d=2$ was fixed based on the ADF results (Table~\ref{tab:adf}). The autoregressive order $p$ was selected by minimising validation MAPE over $p \in \{1, \ldots, 12\}$.
+
+\paragraph{Why $p = 3$?}
+The PACF of the second-differenced training series (Figure~4) shows significant partial autocorrelations at lags~1, 2, and 3, with values dropping to within the confidence bands after lag~3. This indicates that the current second difference depends directly on the three most recent values but not further. A grid search confirmed that $p = 3$ minimised the validation MAPE ($9.73\%$) and achieved AIC $= 7115.05$. Choosing $p > 3$ added parameters without meaningful error reduction, risking overfitting.
+
+\subsubsection{Moving Average Model -- MA($q$)}
+
+The MA model expresses the observation as a function of current and past forecast errors:
+\begin{equation}
+  \Delta^2 y_t = \mu + \varepsilon_t + \sum_{j=1}^{q}\theta_j\,\varepsilon_{t-j}, \qquad \varepsilon_t \sim \mathcal{N}(0,\sigma^2).
+  \label{eq:ma}
+\end{equation}
+Fitted as \texttt{ARIMA(0, 2, $q$)}. The order $q$ was selected by minimising validation MAPE over $q \in \{1, \ldots, 12\}$.
+
+\paragraph{Why $q = 11$?}
+The ACF of the second-differenced series shows a slow, oscillating decay that remains significant up to approximately lag~11. This suggests that past shocks (e.g.\ sudden production disruptions or seasonal maintenance cycles) continue to influence production for nearly a year. The validation search confirmed $q = 11$ (AIC $= 7164.33$, Val MAPE $= 9.26\%$). Although $q = 11$ is relatively large, it captures the lingering effects of structural shocks in the oil production series.
+
+\subsubsection{ARIMA($p,d,q$)}
+
+ARIMA combines autoregression, $d$-order differencing, and a moving average component into a single framework \citep{box2015}:
+\begin{equation}
+  \phi(B)\,(1-B)^d\,y_t = c + \theta(B)\,\varepsilon_t,
+  \label{eq:arima}
+\end{equation}
+where $B$ is the backshift operator ($B y_t = y_{t-1}$), $\phi(B) = 1 - \phi_1 B - \cdots - \phi_p B^p$ is the AR polynomial, and $\theta(B) = 1 + \theta_1 B + \cdots + \theta_q B^q$ is the MA polynomial. A grid search over $p, q \in \{1, 2, 3\}$ with $d = 2$ was performed.
+
+\paragraph{Why ARIMA(1, 2, 2)?}
+The grid search identified $(p,q) = (1,2)$ as optimal, achieving AIC $= 7112.56$ and Val MAPE $= 9.65\%$. This configuration balances parsimony with fit: a single AR term captures the strongest autoregressive dependence (lag~1), while two MA terms absorb the residual shock dynamics at lags~1 and~2. Higher-order combinations offered negligible AIC improvement and increased convergence issues during rolling re-estimation.
+
+\subsubsection{SARIMA($p,d,q$)($P,D,Q$)$_s$}
+
+SARIMA extends ARIMA with multiplicative seasonal components at period $s$:
+\begin{equation}
+  \Phi(B^s)\,\phi(B)\,(1-B)^d\,(1-B^s)^D\,y_t = c + \Theta(B^s)\,\theta(B)\,\varepsilon_t,
+  \label{eq:sarima}
+\end{equation}
+where $\Phi(B^s)$ and $\Theta(B^s)$ are the seasonal AR and MA polynomials, and $D$ is the seasonal differencing order. The seasonal period is set to $s = 12$ (monthly data with annual cycles).
+
+\paragraph{Why seasonal differencing?}
+The additive decomposition (Section~2.3.2) revealed a mild but persistent annual cycle in Texas production (summer peaks, winter troughs). The seasonal difference operator $(1-B^{12})$ removes this cycle, making the series more amenable to linear modelling. The seasonal and non-seasonal orders were searched jointly, yielding AIC $= 6245.09$---substantially lower than any non-seasonal ARIMA variant, confirming that the seasonal structure adds significant explanatory power.
+
+\paragraph{Validation anomaly.}
+Despite a high validation MAPE of 58.00\% (caused by the structural break at 2020 falling within the validation window), SARIMA achieved the best test-set performance of all models (RMSE $= 4{,}058$, MAPE $= 1.68\%$, $R^2 = 0.8455$). This demonstrates that the seasonal differencing component is highly effective for the stable post-pandemic production regime in the test period.
+
+\subsection{Deep Learning Models}
+
+All neural networks operate on the scaled second-differenced series $\tilde{z}_t$ (Eq.~\ref{eq:minmax}) to ensure stationarity and prevent gradient saturation. Predictions are inverted through the MinMaxScaler and then reconstructed to the original scale:
+\begin{equation}
+  \hat{y}_{t+1} = \widehat{\Delta^2 y}_{t+1} + \Delta y_t + y_t = \widehat{\Delta^2 y}_{t+1} + 2y_t - y_{t-1}.
+  \label{eq:reconstruct}
+\end{equation}
+This reconstruction adds the predicted second difference back to the two most recent known values. Hyperparameters were tuned using \texttt{keras-tuner} (RandomSearch, 3 trials per configuration) \citep{omalley2019}. All models share the following configuration:
+\begin{itemize}
+  \item \textbf{Look-back window} $w$: Searched over $w \in \{10, 11, 12, 13, 14, 15\}$ timesteps.
+  \item \textbf{Hidden units} $h$: Searched over $h \in \{16, 32, 48, 64\}$.
+  \item \textbf{Optimiser}: Adam \citep{kingma2015} with learning rate $\eta = 10^{-3}$, loss $=$ MSE.
+  \item \textbf{Early stopping}: Patience of 10 epochs; maximum 100 epochs (restore best weights).
+  \item \textbf{Batch size}: Default Keras batch size.
+\end{itemize}
+
+\subsubsection{Gated Recurrent Unit -- GRU}
+
+The GRU \citep{cho2014} uses update and reset gates to control information flow without a separate cell state:
+\begin{align}
+  \mathbf{r}_t &= \sigma\!\bigl(\mathbf{W}_r\,\mathbf{x}_t + \mathbf{U}_r\,\mathbf{h}_{t-1} + \mathbf{b}_r\bigr), \label{eq:gru_reset} \\
+  \mathbf{u}_t &= \sigma\!\bigl(\mathbf{W}_u\,\mathbf{x}_t + \mathbf{U}_u\,\mathbf{h}_{t-1} + \mathbf{b}_u\bigr), \label{eq:gru_update} \\
+  \tilde{\mathbf{h}}_t &= \tanh\!\bigl(\mathbf{W}_h\,\mathbf{x}_t + \mathbf{U}_h\,(\mathbf{r}_t \odot \mathbf{h}_{t-1}) + \mathbf{b}_h\bigr), \label{eq:gru_candidate} \\
+  \mathbf{h}_t &= \mathbf{u}_t \odot \mathbf{h}_{t-1} + (1 - \mathbf{u}_t) \odot \tilde{\mathbf{h}}_t, \label{eq:gru_output}
+\end{align}
+where $\sigma$ is the sigmoid function, $\odot$ denotes element-wise multiplication, $\mathbf{r}_t$ is the reset gate, $\mathbf{u}_t$ is the update gate, and $\tilde{\mathbf{h}}_t$ is the candidate hidden state.
+
+\paragraph{Why GRU and why $w = 10$?}
+The GRU alleviates the vanishing-gradient problem that afflicts simple RNNs while using fewer parameters than LSTM (two gates instead of three), reducing overfitting risk on a dataset of only 541 observations. The \texttt{keras-tuner} search selected $w = 10$ months as the optimal look-back window, which corresponds to approximately 10~months of production history---long enough to capture seasonal patterns but short enough to focus on the most recent regime dynamics.
+
+\subsubsection{Long Short-Term Memory -- LSTM}
+
+The LSTM \citep{hochreiter1997} introduces a cell state $\mathbf{c}_t$ alongside three gates for selective memory retention:
+\begin{align}
+  \mathbf{f}_t &= \sigma\!\bigl(\mathbf{W}_f\,\mathbf{x}_t + \mathbf{U}_f\,\mathbf{h}_{t-1} + \mathbf{b}_f\bigr), \label{eq:lstm_forget}\\
+  \mathbf{i}_t &= \sigma\!\bigl(\mathbf{W}_i\,\mathbf{x}_t + \mathbf{U}_i\,\mathbf{h}_{t-1} + \mathbf{b}_i\bigr), \label{eq:lstm_input}\\
+  \tilde{\mathbf{c}}_t &= \tanh\!\bigl(\mathbf{W}_c\,\mathbf{x}_t + \mathbf{U}_c\,\mathbf{h}_{t-1} + \mathbf{b}_c\bigr), \label{eq:lstm_candidate}\\
+  \mathbf{c}_t &= \mathbf{f}_t \odot \mathbf{c}_{t-1} + \mathbf{i}_t \odot \tilde{\mathbf{c}}_t, \label{eq:lstm_cell}\\
+  \mathbf{o}_t &= \sigma\!\bigl(\mathbf{W}_o\,\mathbf{x}_t + \mathbf{U}_o\,\mathbf{h}_{t-1} + \mathbf{b}_o\bigr), \label{eq:lstm_outputgate}\\
+  \mathbf{h}_t &= \mathbf{o}_t \odot \tanh(\mathbf{c}_t), \label{eq:lstm_hidden}
+\end{align}
+where $\mathbf{f}_t$ is the forget gate, $\mathbf{i}_t$ the input gate, and $\mathbf{o}_t$ the output gate. The cell state $\mathbf{c}_t$ can carry information over long sequences with minimal degradation, making LSTM well suited for time series with long-range dependencies.
+
+\paragraph{Why LSTM and why $w = 11$?}
+LSTM's three-gate architecture allows it to selectively retain or forget information over longer horizons than GRU, which is useful for capturing multi-year production trends and regime transitions. The tuner selected $w = 11$ timesteps, slightly longer than the GRU window ($w = 10$), allowing LSTM to leverage its long-memory capability over a wider context. The marginal performance difference (MAPE: 2.58\% vs.\ 2.55\%) suggests that the additional LSTM parameters provide minimal benefit over GRU for this particular dataset size.
+
+\subsubsection{Simple RNN}
+
+The simple (Elman) RNN computes the hidden state via a single recurrence:
+\begin{equation}
+  \mathbf{h}_t = g\!\bigl(\mathbf{W}_h\,\mathbf{x}_t + \mathbf{U}_h\,\mathbf{h}_{t-1} + \mathbf{b}_h\bigr),
+  \label{eq:rnn}
+\end{equation}
+where $g(\cdot)$ is the activation function. We use ReLU ($g(x) = \max(0,x)$) rather than $\tanh$ to mitigate vanishing gradients in the non-gated architecture.
+
+\paragraph{Why ReLU activation and why $w = 11$?}
+Without gating mechanisms, the simple RNN is prone to vanishing gradients when using saturating activations like $\tanh$. ReLU avoids saturation for positive inputs, allowing gradients to propagate more effectively. The tuner selected $w = 11$, and the resulting MAPE of 2.64\% confirms that even a basic recurrent architecture can outperform the naive baseline, though gated variants (GRU, LSTM) achieve lower errors.
+
+\subsection{Statistical Quantile Regression with Adaptive Conformal Calibration}
+
+To generate calibrated probabilistic forecasts, a lag-based Quantile Regression model \citep{koenker1978} was fitted on the log second-differenced series. The quantile regression loss (pinball loss) for quantile level $\tau$ is:
+\begin{equation}
+  \mathcal{L}_\tau(y, \hat{y}) =
+  \begin{cases}
+    \tau\,(y - \hat{y})       & \text{if } y \ge \hat{y}, \\
+    (1-\tau)\,(\hat{y} - y)   & \text{if } y < \hat{y}.
+  \end{cases}
+  \label{eq:pinball}
+\end{equation}
+Unlike OLS, which estimates the conditional mean, quantile regression estimates the conditional $\tau$-quantile, providing a natural framework for prediction intervals by fitting at $\tau \in \{0.10, 0.50, 0.90\}$.
+
+\paragraph{Feature engineering.}
+For each time step, the design matrix includes lagged log second differences $\{\text{lag}_1, \ldots, \text{lag}_L\}$ and a 6-month rolling standard deviation (volatility proxy). A constant term is added via \texttt{statsmodels.add\_constant}.
+
+\paragraph{Why lag depth $L = 12$?}
+The lag depth was tuned on the validation set by minimising the average pinball loss across quantile levels $\{0.10, 0.50, 0.90\}$ over candidates $L \in \{3, 6, 12\}$. The 12-month lag captures the full annual production cycle, which is critical for the seasonal patterns identified in the EDA. Shorter lags ($L = 3, 6$) missed the annual periodicity and produced wider, less calibrated intervals.
+
+\paragraph{Why a 6-month volatility window?}
+The rolling standard deviation over 6~months serves as a proxy for recent production volatility. This window is long enough to smooth out month-to-month noise but short enough to react to regime changes (e.g.\ the post-pandemic recovery). Including this feature allows the quantile regression to produce wider intervals during volatile periods and tighter intervals during stable periods.
+
+\paragraph{Adaptive conformal calibration.}
+A walk-forward calibration scheme inspired by conformal prediction \citep{vovk2005} was applied:
+\begin{enumerate}
+  \item The final Quantile Regression model was fitted on the most recent 120~months of training-plus-validation data (modern regime only).
+  \item Residuals $\{y_i - \hat{y}_i^{(0.50)}\}$ from the in-sample modern regime were stored in a rolling window of the last 60 errors.
+  \item At each test step, the empirical 10th and 90th percentiles of the 60 most recent residuals were added to the Q50 point forecast to form adaptive prediction intervals:
+  \begin{equation}
+    \hat{y}_t^{(L)} = \hat{y}_t^{(0.50)} + Q_{0.10}(\mathcal{E}_{60}), \qquad
+    \hat{y}_t^{(U)} = \hat{y}_t^{(0.50)} + Q_{0.90}(\mathcal{E}_{60}),
+    \label{eq:conformal}
+  \end{equation}
+  where $\mathcal{E}_{60}$ is the rolling window of the 60 most recent residuals.
+  \item After each step, the new residual was appended and the oldest was discarded.
+\end{enumerate}
+This adaptive scheme is non-exchangeable conformal prediction: the calibration distribution evolves with each new observation, ensuring that the intervals reflect recent forecast performance rather than the entire historical error distribution.
+
+\subsection{Hyperparameter Summary}
+
+\begin{table}[H]
+\centering
+\caption{Selected hyperparameters for all tuned models.}
+\label{tab:hyperparams}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Model} & \textbf{Parameter} & \textbf{Best Value} & \textbf{Justification} \\
+\midrule
+AR            & Order $p$                   & 3        & PACF cutoff at lag 3 \\
+MA            & Order $q$                   & 11       & ACF significant to lag 11 \\
+ARIMA         & Order $(p,d,q)$             & (1,2,2)  & Min.\ AIC in grid search \\
+SARIMA        & Seasonal order              & See AIC $= 6245.09$ & Lowest AIC \\
+GRU           & Timesteps $w$               & 10       & \texttt{keras-tuner} best \\
+LSTM          & Timesteps $w$               & 11       & \texttt{keras-tuner} best \\
+RNN           & Timesteps $w$               & 11       & \texttt{keras-tuner} best \\
+Quantile Reg. & Lag depth $L$; vol.\ window & 12; 6    & Min.\ pinball loss \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ══════════════════════════════════════════════════════════════
+\section{Analysis of Numerical Results}
+
+\subsection{Comparative Model Performance}
+
+Table~\ref{tab:results} summarises the test-set performance of all models on the held-out test partition (July 2021 -- January 2026, $n_{\text{test}} = 55$).
+
+\begin{table}[H]
+\centering
+\caption{Test-set point-forecast performance metrics. Best values per column in \textbf{bold}.}
+\label{tab:results}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Model} & \textbf{RMSE} & \textbf{MAE} & \textbf{MAPE (\%)} & $\boldsymbol{R^2}$ \\
+\midrule
+AR(3)           & 7,499 & 5,869 & 3.59           & 0.4724 \\
+MA(11)          & 6,627 & 4,933 & 3.02           & 0.5880 \\
+ARIMA(1,2,2)    & 6,761 & 5,285 & 3.24           & 0.5711 \\
+SARIMA          & \textbf{4,058} & \textbf{2,734} & \textbf{1.68} & \textbf{0.8455} \\
+GRU             & 5,289 & 4,204 & 2.55           & 0.7380 \\
+LSTM            & 5,628 & 4,283 & 2.58           & 0.7030 \\
+RNN             & 5,677 & 4,290 & 2.64           & 0.6980 \\
+Quantile Reg.   & 6,110 & 4,061 & 2.54           & 0.6497 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Statistical models.}
+SARIMA dominates across all four metrics, achieving RMSE $= 4{,}058$, MAPE $= 1.68\%$, and $R^2 = 0.8455$. The explicit seasonal differencing component captures the annual production cycle and suppresses the residual seasonality that limits non-seasonal ARIMA-family models. Among non-seasonal models, MA(11) achieves the lowest RMSE (6,627) and highest $R^2$ (0.588). AR(3) is the weakest statistical performer ($R^2 = 0.472$), consistent with the need for MA terms to model the autocorrelation structure adequately.
+
+\paragraph{Deep learning models.}
+The GRU achieves the best MAPE among deep-learning models (2.55\%), with its gating mechanism effectively capturing regime transitions and seasonality without the parameter overhead of LSTM. LSTM follows closely at 2.58\%, and the plain RNN lags slightly at 2.64\%. All three deep-learning models surpass the last-year naive baseline (MAPE $= 3.61\%$) and the AR(3) model, demonstrating the value of non-linear sequence modelling on this dataset.
+
+\paragraph{Quantile Regression point forecast.}
+The Q50 output of the Quantile Regression model (MAPE $= 2.54\%$, $R^2 = 0.6497$) is competitive with GRU and serves as the backbone for the probabilistic framework described in Section~4.4.
+
+\paragraph{Overall Results Analysis.}
+The numerical results strongly suggest that explicitly accounting for seasonality is paramount for this dataset. SARIMA's superior performance highlights its ability to handle the cyclic nature of crude oil production effectively. While the deep learning models (GRU, LSTM, RNN) successfully captured non-linear trends and outperformed the naive baselines and simpler AR/MA models, they slightly lagged behind SARIMA in point accuracy. This is likely attributable to the limited dataset size ($n=541$), which restricts the neural networks' ability to fully optimize their large parameter spaces compared to the parsimonious, well-specified SARIMA econometric model. Nevertheless, the deep learning models proved highly capable of adapting to the structural breaks of the shale boom and the 2020 pandemic.
+
+\subsection{Individual Model Forecast Plots}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f5.png}
+    \caption{AR(3) model rolling forecast versus actual test-set production.}
+    \label{fig:ar_forecast}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f6.png}
+    \caption{MA(11) model rolling forecast versus actual test-set production.}
+    \label{fig:ma_forecast}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f7.png}
+    \caption{ARIMA(1,2,2) model rolling forecast versus actual test-set production.}
+    \label{fig:arima_forecast}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f8.png}
+    \caption{SARIMA rolling forecast versus actual test-set production. SARIMA achieves the best point accuracy of all models (\(R^2 = 0.8455\)).}
+    \label{fig:sarima_forecast}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f9.png}
+    \caption{GRU model rolling forecast versus actual test-set production (best deep-learning MAPE~=~2.55\%).}
+    \label{fig:gru_forecast}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f10.png}
+    \caption{LSTM model rolling forecast versus actual test-set production (MAPE~=~2.58\%).}
+    \label{fig:lstm_forecast}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f11.png}
+    \caption{Simple RNN model rolling forecast versus actual test-set production (MAPE~=~2.64\%).}
+    \label{fig:rnn_forecast}
+\end{figure}
+The rolling one-step-ahead forecasts from each model were plotted against the actual test observations. Key visual observations include:
+\begin{itemize}
+  \item SARIMA tracks the actual production closely, including the seasonal dips and peaks.
+  \item GRU and LSTM capture the overall trend but exhibit slightly more lag during sharp month-to-month reversals.
+  \item AR(3) and ARIMA show wider oscillations around the actual values, particularly during periods of rapid production change.
+\end{itemize}
+
+\subsection{Probabilistic Forecasting Results}
+
+Table~\ref{tab:prob} reports the empirical PICP for the three deep-learning models and the adaptive Quantile Regression conformal predictor. All three DL models use the 5th and 95th percentiles of validation residuals as calibration bounds, targeting an $\approx 80\%$ nominal coverage.
+
+\begin{table}[H]
+\centering
+\caption{Probabilistic forecast evaluation on the test set. Target nominal coverage: 80\%.}
+\label{tab:prob}
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Model} & \textbf{PICP (\%)} & \textbf{Mean PI Width (bbls)} & \textbf{Notes} \\
+\midrule
+GRU (conformal)            & 87.27 & 17,265 & Exceeds target \\
+LSTM (conformal)           & 83.64 & 32,539 & Exceeds target, wide intervals \\
+RNN (conformal)            & 81.82 & 26,421 & Exceeds target \\
+Quantile Reg.\ (adaptive)  & 78.18 &  9,580 & Near target, tightest intervals \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The GRU conformal intervals achieve 87.27\% coverage with a mean width of 17,265 thousand barrels. LSTM shows the widest intervals (32,539 thousand barrels) while maintaining 83.64\% coverage. The adaptive Quantile Regression model produces the tightest intervals (9,580 thousand barrels, $\approx 13\%$ of mean production) while coming closest to the 80\% target (PICP $= 78.18\%$), demonstrating that regime-aware calibration on the modern production window yields substantially more efficient uncertainty quantification.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f12.png}
+    \caption{GRU probabilistic forecast with conformal prediction interval (PICP~=~87.27\%, Mean PI Width~=~17{,}265~thousand barrels).}
+    \label{fig:gru_prob}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f13.png}
+    \caption{LSTM probabilistic forecast with conformal prediction interval (PICP~=~83.64\%, Mean PI Width~=~32{,}539~thousand barrels).}
+    \label{fig:lstm_prob}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f14.png}
+    \caption{RNN probabilistic forecast with conformal prediction interval (PICP~=~81.82\%, Mean PI Width~=~26{,}421~thousand barrels).}
+    \label{fig:rnn_prob}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f15.png}
+    \caption{Adaptive Quantile Regression conformal forecast (PICP~=~78.18\%, Mean PI Width~=~9{,}580~thousand barrels). The regime-aware calibration on the last 120 training months yields the tightest uncertainty intervals.}
+    \label{fig:quantreg_prob}
+\end{figure}
+
+\subsection{Comprehensive Dashboard}
+
+A final comparison dashboard across all eight forecasting models was constructed, displaying RMSE, MAE, MAPE, and $R^2$ side by side. The dashboard confirms the ranking: SARIMA $>$ GRU $\approx$ Quantile Regression $>$ LSTM $>$ RNN $>$ MA $>$ ARIMA $>$ AR in terms of overall test-set accuracy.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{f16.png}
+    \caption{Comprehensive final comparison dashboard across all eight forecasting models, showing point-forecast accuracy and probabilistic coverage metrics.}
+    \label{fig:dashboard}
+\end{figure}
+
+\subsection{Research Gaps Identified}
+
+\begin{enumerate}
+  \item \textbf{Exogenous signal neglect.} All models are purely univariate. Incorporating oil-price volatility, active rig counts, and pipeline capacity via ARIMAX or multivariate LSTM would likely reduce MAPE substantially, as the 2020 COVID-19 shock was driven by demand collapse rather than production dynamics.
+  \item \textbf{Regime-aware modelling.} The structural breaks at 2010 and 2020 are not explicitly modelled. Markov-switching ARIMA or change-point detection layers could improve robustness around such events; the SARIMA validation MAPE of 58\% reflects this vulnerability.
+  \item \textbf{Second-differencing artefacts in deep learning.} Training on the second difference introduces a reconstruction step (Eq.~\ref{eq:reconstruct}) that propagates errors from prior values; small prediction errors in $\Delta^2 y$ can accumulate in the reconstructed original series, particularly in turbulent periods.
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════
+\section{Converting the Forecast into Actions}
+
+\paragraph{Strategic Reserve Management.}
+Forecasts enable optimal timing of SPR injection and drawdown cycles. A predicted production dip below 70,000 thousand barrels (using the SARIMA or GRU model) triggers pre-emptive drawdown scheduling. The Q10 lower bound from the Quantile Regression model defines the worst-case scenario for reserve planning.
+
+\paragraph{State Budget and Fiscal Planning.}
+Texas levies a 4.6\% severance tax on oil market value. Monthly production forecasts converted via forward price curves give the Comptroller's Office 1--2 quarter lead time for revenue revisions. The adaptive conformal intervals provide a principled range for sensitivity analysis.
+
+\paragraph{Refinery and Pipeline Scheduling.}
+Midstream operators can align storage bookings and refinery crude-intake schedules with anticipated supply. A forecast contraction exceeding two standard deviations of the training residuals signals heightened supply risk.
+
+\paragraph{Capital Expenditure Signalling.}
+A sustained upward forecast trend with a narrowing upper prediction interval supports accelerated well-completion schedules for independent producers in the Permian Basin.
+
+\paragraph{Inventory Optimisation.}
+Conformal intervals (Q10--Q90) set inventory safety buffers: the Q10 lower bound defines the worst-case supply scenario; Q90 delineates oversupply risk. The Quantile Regression model's tight intervals (mean width $\approx 9{,}580$ thousand barrels) are particularly suited for this application.
+
+% ══════════════════════════════════════════════════════════════
+\section{Future Work}
+
+\begin{description}
+  \item[Exogenous regressors] Integrating WTI spot price, Baker Hughes rig count, and Permian Basin pipeline export capacity via ARIMAX or multivariate LSTM would capture supply-side economic dynamics unavailable to univariate models. Granger causality tests could screen candidate regressors.
+  \item[Hybrid and Ensemble Methods] Combining SARIMA's seasonal accuracy with GRU's non-linear flexibility via stacked ensembles or STL-LSTM hybrids could push MAPE below 1.5\%.
+  \item[Regime-Switching Models] Markov-Switching ARIMA or hidden Markov model overlays would explicitly account for structural breaks (2010 shale revolution, 2020 demand collapse).
+  \item[Improved Conformal Prediction] Extending the adaptive conformal calibration to conditional coverage (e.g.\ locally-weighted conformal prediction) would account for heteroscedasticity in the shale-boom regime.
+  \item[Transformer-Based Architectures] Temporal Fusion Transformers (TFT) and PatchTST have shown state-of-the-art performance on energy datasets \citep{lim2021}. Their multi-head attention mechanism may better capture long-range dependencies.
+  \item[TCN Evaluation] Temporal Convolutional Networks (TCN) with causal dilated convolutions and residual connections offer large receptive fields and parallelisable training, making them a compelling alternative to recurrent architectures \citep{bai2018}.
+\end{description}
+
+% ══════════════════════════════════════════════════════════════
+\section{Conclusion}
+
+This project benchmarked eight time-series forecasting configurations on 45~years of monthly Texas crude oil production data. The study establishes the following key findings.
+
+Among classical models, SARIMA achieved outstanding test-set accuracy ($R^2 = 0.8455$, MAPE $= 1.68\%$), demonstrating that explicit seasonal differencing is highly effective for a series with a strong annual production cycle. Non-seasonal models (AR, MA, ARIMA) attained $R^2$ values of 0.47--0.59, with MA(11) being the best non-seasonal option.
+
+Among deep-learning models, GRU achieved the best MAPE (2.55\%), followed closely by LSTM (2.58\%) and RNN (2.64\%). All three surpass the na\"ive last-year-mean baseline (MAPE $= 3.61\%$) and demonstrate the value of learnable non-linear dynamics for a series shaped by technological and geopolitical shocks.
+
+The adaptive Quantile Regression model produced the tightest probabilistic intervals (mean width $= 9{,}580$ thousand barrels) with a PICP of 78.18\% against the 80\% target, outperforming DL conformal intervals on interval efficiency. Future integration of exogenous price and drilling signals, together with transformer-based architectures, represents the most promising avenue for further accuracy improvement.
+
+% ══════════════════════════════════════════════════════════════
+\section*{Code Availability}
+The complete Python codebase (\texttt{final\_AFM\_project.ipynb}) used for data pre-processing, model training, and metric evaluation in this study is publicly available at: \url{https://github.com/your-username/your-repo-link}.
+\bibliographystyle{apalike}
+
+\begin{thebibliography}{99}
+
+\bibitem[Abadi et~al., 2015]{abadi2015}
+Abadi, M., Agarwal, A., Barham, P., et~al. (2015).
+\newblock TensorFlow: Large-Scale Machine Learning on Heterogeneous Distributed Systems.
+\newblock \url{https://tensorflow.org}.
+
+\bibitem[Bai et~al., 2018]{bai2018}
+Bai, S., Kolter, J.~Z., and Koltun, V. (2018).
+\newblock An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling.
+\newblock \emph{arXiv preprint arXiv:1803.01271}.
+
+\bibitem[Box et~al., 2015]{box2015}
+Box, G. E.~P., Jenkins, G.~M., Reinsel, G.~C., and Ljung, G.~M. (2015).
+\newblock \emph{Time Series Analysis: Forecasting and Control} (5th ed.).
+\newblock Wiley, Hoboken, NJ.
+
+\bibitem[Cho et~al., 2014]{cho2014}
+Cho, K., van Merri{\"e}nboer, B., Gulcehre, C., Bahdanau, D., Bougares, F., Schwenk, H., and Bengio, Y. (2014).
+\newblock Learning Phrase Representations using RNN Encoder-Decoder for Statistical Machine Translation.
+\newblock \emph{arXiv preprint arXiv:1406.1078}.
+
+\bibitem[EIA, 2026]{eia2026}
+U.S. Energy Information Administration (EIA) (2026).
+\newblock Texas Field Production of Crude Oil [Data series PET.MCRFPTX2.M].
+\newblock \url{https://www.eia.gov}.
+
+\bibitem[Hamilton, 1994]{hamilton1994}
+Hamilton, J.~D. (1994).
+\newblock \emph{Time Series Analysis}.
+\newblock Princeton University Press, Princeton, NJ.
+
+\bibitem[Hochreiter and Schmidhuber, 1997]{hochreiter1997}
+Hochreiter, S. and Schmidhuber, J. (1997).
+\newblock Long Short-Term Memory.
+\newblock \emph{Neural Computation}, 9(8):1735--1780.
+
+\bibitem[Hyndman and Athanasopoulos, 2021]{hyndman2021}
+Hyndman, R.~J. and Athanasopoulos, G. (2021).
+\newblock \emph{Forecasting: Principles and Practice} (3rd ed.).
+\newblock OTexts, Melbourne, Australia.
+\newblock \url{https://otexts.com/fpp3/}.
+
+\bibitem[Kingma and Ba, 2015]{kingma2015}
+Kingma, D.~P. and Ba, J. (2015).
+\newblock Adam: A Method for Stochastic Optimization.
+\newblock In \emph{Proceedings of the 3rd International Conference on Learning Representations (ICLR)}.
+
+\bibitem[Koenker and Bassett, 1978]{koenker1978}
+Koenker, R. and Bassett, G. (1978).
+\newblock Regression Quantiles.
+\newblock \emph{Econometrica}, 46(1):33--50.
+
+\bibitem[Lim et~al., 2021]{lim2021}
+Lim, B., Ar{\'i}k, S.~{\"O}., Loeff, N., and Pfister, T. (2021).
+\newblock Temporal Fusion Transformers for Interpretable Multi-Horizon Time Series Forecasting.
+\newblock \emph{International Journal of Forecasting}, 37(4):1748--1764.
+
+\bibitem[McKinney, 2010]{mckinney2010}
+McKinney, W. (2010).
+\newblock Data Structures for Statistical Computing in Python.
+\newblock \emph{Proceedings of the 9th Python in Science Conference}, 56--61.
+
+\bibitem[O'Malley et~al., 2019]{omalley2019}
+O'Malley, T., Burber, E., Popoff, A., et~al. (2019).
+\newblock Keras Tuner.
+\newblock \url{https://github.com/keras-team/keras-tuner}.
+
+\bibitem[Pedregosa et~al., 2011]{pedregosa2011}
+Pedregosa, F., Varoquaux, G., Gramfort, A., et~al. (2011).
+\newblock Scikit-learn: Machine Learning in Python.
+\newblock \emph{Journal of Machine Learning Research}, 12:2825--2830.
+
+\bibitem[Seabold and Perktold, 2010]{seabold2010}
+Seabold, S. and Perktold, J. (2010).
+\newblock Statsmodels: Econometric and Statistical Modelling with Python.
+\newblock \emph{Proceedings of the 9th Python in Science Conference (SciPy 2010)}.
+
+\bibitem[Vovk et~al., 2005]{vovk2005}
+Vovk, V., Gammerman, A., and Shafer, G. (2005).
+\newblock \emph{Algorithmic Learning in a Random World}.
+\newblock Springer, New York.
+
+\end{thebibliography}
+
+\end{document}
