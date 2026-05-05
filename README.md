@@ -47,9 +47,9 @@ The forecasting task is framed as a supervised univariate time-series regression
 ```text
 ├── data/
 │   └── Texas_dataset.csv          # Raw EIA dataset
-├── notebooks/
+├── notebook/
 │   └── final_AFM_project.ipynb    # Main Jupyter Notebook with all code & analysis
-├── docs/
+├── Report/
 │   ├── main_AFM.pdf           # Detailed project report
 │   └── main_AFM.tex           # LaTeX source code for the report
 ├── images/                        # Visualizations generated during EDA and Evaluation
